@@ -7,6 +7,7 @@
 #include <utility>
 #include <tuple>
 #include <functional>
+#include <limits>
 
 class Research
 {
@@ -22,16 +23,25 @@ class Research
         void IncrementResearchPoints(std::mutex& mut);
         void PurchaseUpgrades();
 
-        void AddUpgrade(const std::string& upgradeName, int rpCost, std::function<void()> func)
+        void AddUpgrade(const std::string& upgradeName, int rpCost, bool hasUpgrade, std::function<void()> func)
         {
-            mUpgrades.push_back(std::make_tuple(upgradeName, rpCost, func));
+            mUpgrades.push_back(std::make_tuple(upgradeName, rpCost, hasUpgrade, func));
         }
 
         void ViewUpgradeList()
         {
-            for (int counter{ 0 }; const auto& [upgradeName, cost, _] : mUpgrades)
+            for (int counter{ 0 }; const auto& [upgradeName, cost, hasUpgrade, _] : mUpgrades)
             {
-                std::cout << ++counter << "). " << upgradeName << " - RP" << cost << "\n";
+                std::cout << ++counter << "). ";
+
+                if (hasUpgrade == true)
+                {
+                    std::cout << "[Owned]" << upgradeName << " - RP" << cost << "\n";
+                }
+                else
+                {
+                   std::cout << upgradeName << " - RP" << cost << "\n";
+                }
             }
         }
 
@@ -45,12 +55,24 @@ class Research
             return mMaxResearchPoints;
         }
 
+        //jthread was not terminating the thread no matter what I did. I tried to
+        // return 0 from 3 in the switch statement and the program just hung, so
+        // I passed a stop_token to the functions and the thread and that didnt work.
+        //this solution works though. Not sure if this causes any ill effects
+        //on the thread though.
+        void TerminateLoop()
+        {
+            endResearchLoop = true;
+        }
+
     private:
         int mResearchPoints{ 0 };
         const int mMaxResearchPoints{ 5000 };
         int mResearchSpeed{ 1000 };
 
-        std::vector<std::tuple<std::string, int, std::function<void()>>> mUpgrades{};
+        std::vector<std::tuple<std::string, int, bool, std::function<void()>>> mUpgrades{};
+
+        bool endResearchLoop{ false };
 
         void ModifyResearchSpeed(int newSpeed)
         {
@@ -60,14 +82,16 @@ class Research
 
 int main()
 {
-    Research research(400, 5000);
-    //std::function<void()> computingPowerOne = [&research]() { research.ModifyResearchSpeed(500); };
-    auto computingPowerOne = research.GetModifySpeedFunction(500);
-    research.AddUpgrade("Computing Power - Makes gaining Research Points faster.", 13, computingPowerOne);
+    Research research(0, 50);
 
-    //std::function<void()> computingPowerTwo = [&research]() { research.ModifyResearchSpeed(300); };
-    auto computingPowerTwo = research.GetModifySpeedFunction(300);
-    research.AddUpgrade("Computing Power 2 - Makes gaining Research Points even faster.", 26, computingPowerTwo);
+    std::function<void()> computingPowerOne = research.GetModifySpeedFunction(500);
+    research.AddUpgrade("Computing Power 1", 13, false, computingPowerOne);
+
+    std::function<void()> computingPowerTwo = research.GetModifySpeedFunction(300);
+    research.AddUpgrade("Computing Power 2", 26, false, computingPowerTwo);
+
+    std::function<void()> computingPowerThree = research.GetModifySpeedFunction(100);
+    research.AddUpgrade("Computing Power 3", 50, false, computingPowerThree);
 
     std::mutex mut;
 
@@ -77,34 +101,55 @@ int main()
     int input{ 0 };
     bool runGame{ true };
 
+
     while (runGame)
     {
         std::cout << "What would you like to do?\n\n";
         std::cout << "1) View Available Research Points.\n";
         std::cout << "2) Purchase Upgrade\n";
+        std::cout << "3) Quit\n";
 
         std::cin >> input;
 
-        switch (input)
+        if (input > 3)
         {
+            std::cout << "\n[ERROR] There are only 3 choices! Please try again\n";
+        }
+        else if (std::cin.fail())
+        {
+            std::cout << "\n[ERROR] Non integer value entered, please try again.\n\n";
+        }
+        else
+        {
+            switch (input)
+            {
             case 1:
-                {
-                    std::lock_guard<std::mutex> lock(mut);
-                    std::cout << "Current Research Points: " << research.GetResearchPoints() << '\n';
-                }
-                break;
+            {
+                std::lock_guard<std::mutex> lock(mut);
+                std::cout << "Current Research Points: " << research.GetResearchPoints() << '\n';
+            }
+            break;
             case 2:
                 research.PurchaseUpgrades();
                 break;
+            case 3:
+                research.TerminateLoop();
+                runGame = false;
+                break;
             default:
-                std::cout << "Invalid Choice.\n";
+                std::cout << "Invalid Input\n";
+            }
         }
+        std::cin.clear();
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     }
+
+    return 0;
 }
 
 void Research::IncrementResearchPoints(std::mutex& mut)
 {
-    while (true)
+    while (!endResearchLoop)
     {
         {
             std::lock_guard<std::mutex> lock(mut);
@@ -119,9 +164,9 @@ void Research::IncrementResearchPoints(std::mutex& mut)
 
 void Research::PurchaseUpgrades()
 {
-    std::cout << "Which upgrade would you like to purchase?\n\n";
+    std::cout << "\nWhich upgrade would you like to purchase?\n\n";
 
-    std::cout << "Current RP: " << mResearchPoints << "\n\n";
+    std::cout << "Current RP: " << GetResearchPoints() << "\n\n";
 
     ViewUpgradeList();
     
@@ -131,16 +176,43 @@ void Research::PurchaseUpgrades()
     std::cout << '>';
     std::cin >> choice;
 
-    if (mResearchPoints >= std::get<1>(mUpgrades[choice -1]))
+    if (choice > mUpgrades.size())
     {
-        std::cout << "You purchased the " << std::get<0>(mUpgrades[choice - 1]) << " for " << std::get<1>(mUpgrades[choice - 1]) << " RP\n";
-        mResearchPoints -= std::get<1>(mUpgrades[choice - 1]);
-        std::cout << "Remaining RP: " << mResearchPoints << '\n';
-
-        std::get<2>(mUpgrades[choice - 1])();
+        std::cout << "\n[ERROR] There are only " << mUpgrades.size() <<  " choices! Please try again\n";
+        return;
+    }
+    else if (std::cin.fail())
+    {
+        std::cout << "\n[ERROR] Non integer value entered, please try again.\n\n";
+        return;
     }
     else
     {
-        std::cout << "You do not have enough Research Points to purchase " << std::get<0>(mUpgrades[choice - 1]) << '\n';
+        int shiftIndex{ choice - 1 };
+
+        if (mResearchPoints >= std::get<1>(mUpgrades[shiftIndex]))
+        {
+            if (std::get<2>(mUpgrades[shiftIndex]) == true)
+            {
+                std::cout << "You already have this upgrade, you cannot buy it again!\n\n";
+            }
+            else
+            {
+                std::cout << "You purchased the " << std::get<0>(mUpgrades[shiftIndex]) << " for " << std::get<1>(mUpgrades[shiftIndex]) << " RP\n";
+
+                mResearchPoints -= std::get<1>(mUpgrades[shiftIndex]);
+
+                std::cout << "Remaining RP: " << GetResearchPoints() << '\n';
+
+                std::get<2>(mUpgrades[shiftIndex]) = true;
+
+                //Get our upgrade
+                std::get<3>(mUpgrades[shiftIndex])();
+            }
+        }
+        else
+        {
+            std::cout << "You do not have enough Research Points to purchase " << std::get<0>(mUpgrades[shiftIndex]) << '\n';
+        }
     }
 }
