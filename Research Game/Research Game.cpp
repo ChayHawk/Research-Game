@@ -32,15 +32,15 @@ class Research
         {
             for (int counter{ 0 }; const auto& [upgradeName, cost, hasUpgrade, _] : mUpgrades)
             {
-                std::cout << ++counter << "). " << upgradeName;
+                std::cout << ++counter << "). ";
 
                 if (hasUpgrade == true)
                 {
-                    std::cout << "[Owned]" << " - RP" << cost << "\n";
+                    std::cout << "[Owned]" << upgradeName << " - RP" << cost << "\n";
                 }
                 else
                 {
-                   std::cout << " - RP" << cost << "\n";
+                   std::cout << upgradeName << " - RP" << cost << "\n";
                 }
             }
         }
@@ -179,10 +179,12 @@ void Research::PurchaseUpgrades()
     if (choice > mUpgrades.size())
     {
         std::cout << "\n[ERROR] There are only " << mUpgrades.size() <<  " choices! Please try again\n";
+        return;
     }
     else if (std::cin.fail())
     {
         std::cout << "\n[ERROR] Non integer value entered, please try again.\n\n";
+        return;
     }
     else
     {
@@ -213,7 +215,4 @@ void Research::PurchaseUpgrades()
             std::cout << "You do not have enough Research Points to purchase " << std::get<0>(mUpgrades[shiftIndex]) << '\n';
         }
     }
-
-    std::cin.clear();
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 }
