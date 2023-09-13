@@ -22,16 +22,25 @@ class Research
         void IncrementResearchPoints(std::mutex& mut);
         void PurchaseUpgrades();
 
-        void AddUpgrade(const std::string& upgradeName, int rpCost, std::function<void()> func)
+        void AddUpgrade(const std::string& upgradeName, int rpCost, bool hasUpgrade, std::function<void()> func)
         {
-            mUpgrades.push_back(std::make_tuple(upgradeName, rpCost, func));
+            mUpgrades.push_back(std::make_tuple(upgradeName, rpCost, hasUpgrade, func));
         }
 
         void ViewUpgradeList()
         {
-            for (int counter{ 0 }; const auto& [upgradeName, cost, _] : mUpgrades)
+            for (int counter{ 0 }; const auto& [upgradeName, cost, hasUpgrade, _] : mUpgrades)
             {
-                std::cout << ++counter << "). " << upgradeName << " - RP" << cost << "\n";
+                std::cout << ++counter << "). " << upgradeName;
+
+                if (hasUpgrade == true)
+                {
+                    std::cout << "[Owned]" << " - RP" << cost << "\n";
+                }
+                else
+                {
+                   std::cout << " - RP" << cost << "\n";
+                }
             }
         }
 
@@ -50,7 +59,7 @@ class Research
         const int mMaxResearchPoints{ 5000 };
         int mResearchSpeed{ 1000 };
 
-        std::vector<std::tuple<std::string, int, std::function<void()>>> mUpgrades{};
+        std::vector<std::tuple<std::string, int, bool, std::function<void()>>> mUpgrades{};
 
         void ModifyResearchSpeed(int newSpeed)
         {
@@ -61,13 +70,12 @@ class Research
 int main()
 {
     Research research(400, 5000);
-    //std::function<void()> computingPowerOne = [&research]() { research.ModifyResearchSpeed(500); };
-    auto computingPowerOne = research.GetModifySpeedFunction(500);
-    research.AddUpgrade("Computing Power - Makes gaining Research Points faster.", 13, computingPowerOne);
 
-    //std::function<void()> computingPowerTwo = [&research]() { research.ModifyResearchSpeed(300); };
-    auto computingPowerTwo = research.GetModifySpeedFunction(300);
-    research.AddUpgrade("Computing Power 2 - Makes gaining Research Points even faster.", 26, computingPowerTwo);
+    std::function<void()> computingPowerOne = research.GetModifySpeedFunction(500);
+    research.AddUpgrade("Computing Power", 13, false, computingPowerOne);
+
+    std::function<void()> computingPowerTwo = research.GetModifySpeedFunction(300);
+    research.AddUpgrade("Computing Power 2", 26, false, computingPowerTwo);
 
     std::mutex mut;
 
@@ -131,16 +139,28 @@ void Research::PurchaseUpgrades()
     std::cout << '>';
     std::cin >> choice;
 
-    if (mResearchPoints >= std::get<1>(mUpgrades[choice -1]))
-    {
-        std::cout << "You purchased the " << std::get<0>(mUpgrades[choice - 1]) << " for " << std::get<1>(mUpgrades[choice - 1]) << " RP\n";
-        mResearchPoints -= std::get<1>(mUpgrades[choice - 1]);
-        std::cout << "Remaining RP: " << mResearchPoints << '\n';
+    int indexShift{ choice - 1 };
 
-        std::get<2>(mUpgrades[choice - 1])();
+    if (mResearchPoints >= std::get<1>(mUpgrades[indexShift]))
+    {
+        if (std::get<2>(mUpgrades[indexShift]) == true)
+        {
+            std::cout << "You already have this upgrade, you cannot buy it again!\n\n";
+        }
+        else 
+        {
+            std::cout << "You purchased the " << std::get<0>(mUpgrades[indexShift]) << " for " << std::get<1>(mUpgrades[indexShift]) << " RP\n";
+            mResearchPoints -= std::get<1>(mUpgrades[indexShift]);
+            std::cout << "Remaining RP: " << mResearchPoints << '\n';
+
+            std::get<2>(mUpgrades[indexShift]) = true;
+
+            //Get our upgrade
+            std::get<3>(mUpgrades[indexShift])();
+        }
     }
     else
     {
-        std::cout << "You do not have enough Research Points to purchase " << std::get<0>(mUpgrades[choice - 1]) << '\n';
+        std::cout << "You do not have enough Research Points to purchase " << std::get<0>(mUpgrades[indexShift]) << '\n';
     }
 }
