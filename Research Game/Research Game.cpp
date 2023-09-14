@@ -8,6 +8,7 @@
 #include <tuple>
 #include <functional>
 #include <limits>
+#include <atomic>
 
 class Research
 {
@@ -20,7 +21,7 @@ class Research
             return [this, newSpeed]() { ModifyResearchSpeed(newSpeed); };
         }
 
-        void IncrementResearchPoints(std::mutex& mut);
+        void IncrementResearchPoints();
         void PurchaseUpgrades();
 
         void AddUpgrade(const std::string& upgradeName, int rpCost, bool hasUpgrade, std::function<void()> func)
@@ -55,6 +56,17 @@ class Research
             return mMaxResearchPoints;
         }
 
+        void UpgradeTimer(int timeInSeconds)
+        {
+            //auto timer = std::chrono::seconds(timeInSeconds);
+
+            while (timeInSeconds != 0)
+            {
+                std::cout << --timeInSeconds << '\n';
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+        }
+
         //jthread was not terminating the thread no matter what I did. I tried to
         // return 0 from 3 in the switch statement and the program just hung, so
         // I passed a stop_token to the functions and the thread and that didnt work.
@@ -66,7 +78,7 @@ class Research
         }
 
     private:
-        int mResearchPoints{ 0 };
+        std::atomic<int> mResearchPoints{ 0 };
         const int mMaxResearchPoints{ 5000 };
         int mResearchSpeed{ 1000 };
 
@@ -82,25 +94,26 @@ class Research
 
 int main()
 {
-    Research research(0, 50);
+    Research research(110, 1000);
 
-    std::function<void()> computingPowerOne = research.GetModifySpeedFunction(500);
-    research.AddUpgrade("Computing Power 1", 13, false, computingPowerOne);
+    int timeInSeconds{ 0 };
 
-    std::function<void()> computingPowerTwo = research.GetModifySpeedFunction(300);
-    research.AddUpgrade("Computing Power 2", 26, false, computingPowerTwo);
+    //I could have used auto to deduce the typs here but i decided to be explicit since im learning about std::function
+    std::function<void()> computingPowerOne{ research.GetModifySpeedFunction(500) };
+    research.AddUpgrade("Computing Power 1", 100, false, computingPowerOne);
 
-    std::function<void()> computingPowerThree = research.GetModifySpeedFunction(100);
-    research.AddUpgrade("Computing Power 3", 50, false, computingPowerThree);
+    std::function<void()> computingPowerTwo{ research.GetModifySpeedFunction(300) };
+    research.AddUpgrade("Computing Power 2", 350, false, computingPowerTwo);
 
-    std::mutex mut;
+    std::function<void()> computingPowerThree{ research.GetModifySpeedFunction(100) };
+    research.AddUpgrade("Computing Power 3", 600, false, computingPowerThree);
 
     //We want our research points to accumulate in the background so we put it on a separate thread.
-    std::jthread researchThread(&Research::IncrementResearchPoints, &research, std::ref(mut));
+    std::jthread researchThread(&Research::IncrementResearchPoints, &research);
+    std::jthread upgradeTimer(&Research::UpgradeTimer, &research, timeInSeconds);
 
     int input{ 0 };
     bool runGame{ true };
-
 
     while (runGame)
     {
@@ -125,7 +138,6 @@ int main()
             {
             case 1:
             {
-                std::lock_guard<std::mutex> lock(mut);
                 std::cout << "Current Research Points: " << research.GetResearchPoints() << '\n';
             }
             break;
@@ -147,20 +159,18 @@ int main()
     return 0;
 }
 
-void Research::IncrementResearchPoints(std::mutex& mut)
+void Research::IncrementResearchPoints()
 {
     while (!endResearchLoop)
     {
+        if (mResearchPoints.load() < mMaxResearchPoints)
         {
-            std::lock_guard<std::mutex> lock(mut);
-            if (mResearchPoints < mMaxResearchPoints)
-            {
-                ++mResearchPoints;
-            }
+            mResearchPoints.fetch_add(1);
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(mResearchSpeed));
     }
 }
+
 
 void Research::PurchaseUpgrades()
 {
@@ -190,7 +200,7 @@ void Research::PurchaseUpgrades()
     {
         int shiftIndex{ choice - 1 };
 
-        if (mResearchPoints >= std::get<1>(mUpgrades[shiftIndex]))
+        if (GetResearchPoints() >= std::get<1>(mUpgrades[shiftIndex]))
         {
             if (std::get<2>(mUpgrades[shiftIndex]) == true)
             {
@@ -205,14 +215,20 @@ void Research::PurchaseUpgrades()
                 std::cout << "Remaining RP: " << GetResearchPoints() << '\n';
 
                 std::get<2>(mUpgrades[shiftIndex]) = true;
-
-                //Get our upgrade
                 std::get<3>(mUpgrades[shiftIndex])();
             }
         }
         else
         {
-            std::cout << "You do not have enough Research Points to purchase " << std::get<0>(mUpgrades[shiftIndex]) << '\n';
+            if (std::get<2>(mUpgrades[shiftIndex]) == true)
+            {
+                std::cout << "You already have this upgrade, you cannot buy it again!\n\n";
+            }
+            else
+            {
+                std::cout << "You do not have enough Research Points to purchase " << std::get<0>(mUpgrades[shiftIndex]) << '\n';
+            }
+            
         }
     }
 }
